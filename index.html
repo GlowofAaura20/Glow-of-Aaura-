@@ -15,6 +15,17 @@
 @media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.hero{gap:25px}.hero-image{height:390px}.navlinks{gap:12px}.card img{height:220px}}
 @media(max-width:600px){.nav{padding:13px 4%;gap:10px;flex-wrap:wrap}.logo{font-size:1.28rem}.navlinks{order:3;width:100%;justify-content:space-between;font-size:.8rem}.cart-button{padding:9px 11px;font-size:.82rem}.hero{grid-template-columns:1fr;padding:35px 5% 45px;gap:25px}.hero h1{font-size:3.55rem}.hero-image{height:320px}.section{padding:48px 5%}.grid{gap:10px}.card{padding:7px}.card img{height:165px}.card h3{font-size:1.04rem}.card .desc{font-size:.76rem;min-height:58px}.add{font-size:.76rem;padding:8px}.price{font-size:.98rem}.about{grid-template-columns:1fr;gap:25px}.about img{height:300px}.benefits{gap:9px}.benefit{font-size:.73rem}.benefit strong{font-size:.92rem}.footer-inner{align-items:flex-start;flex-direction:column}.whatsapp{bottom:12px;right:12px}.trust{gap:10px}.overlay{align-items:stretch}}
 </style>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+.admin-entry{position:fixed;left:14px;bottom:14px;z-index:16;background:#fffaf7;color:#6b3c4a;border:1px solid #d9b8ba;padding:9px 13px;border-radius:24px;font-size:.78rem;box-shadow:0 4px 15px #0001}
+.admin-panel{display:none;position:fixed;inset:0;z-index:100;background:#21151ad9;overflow:auto;padding:18px}
+.admin-panel.open{display:block}.admin-box{max-width:760px;margin:4vh auto;background:#fffaf7;padding:22px;border-radius:8px;color:#3c2730}
+.admin-box h2{font-family:'Playfair Display',serif}.admin-box input,.admin-box button{font:inherit;padding:11px;margin:5px 0;max-width:100%}
+.admin-box input{width:100%;border:1px solid #dcc9c5;background:white}.admin-row{border-bottom:1px solid #e7d7d3;padding:10px 0;overflow-wrap:anywhere}
+.admin-actions{display:flex;gap:8px;flex-wrap:wrap}.admin-status{font-size:.9rem;color:#6b3c4a;white-space:pre-wrap}
+</style>
+
 </head>
 <body>
 <div class="announcement">HANDCRAFTED WITH LOVE · LITTLE DETAILS, BEAUTIFUL MOMENTS</div>
@@ -139,5 +150,91 @@ function sendOrderWhatsApp(){
 document.getElementById('payAmount')?.addEventListener('input',updateUpiLink);
 document.getElementById('year').textContent=new Date().getFullYear();renderProducts();renderCart();
 </script>
+
+<button class="admin-entry" type="button" onclick="openAdmin()">Admin Login</button>
+<div class="admin-panel" id="adminPanel" aria-modal="true" role="dialog" aria-label="Store admin">
+  <div class="admin-box">
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
+      <h2 style="margin:0">Glow of Aaura · Admin</h2>
+      <button type="button" onclick="closeAdmin()">Close ✕</button>
+    </div>
+    <p>Sign in with the admin email and password you created in Supabase.</p>
+    <div id="adminLogin">
+      <label>Email<input id="adminEmail" type="email" autocomplete="username" placeholder="Admin email"></label>
+      <label>Password<input id="adminPassword" type="password" autocomplete="current-password" placeholder="Password"></label>
+      <button class="btn" type="button" onclick="adminSignIn()">Sign in</button>
+    </div>
+    <div class="admin-actions" id="adminSignedInActions" style="display:none">
+      <button class="btn" type="button" onclick="loadAdminData()">Refresh products & orders</button>
+      <button type="button" onclick="adminSignOut()">Sign out</button>
+    </div>
+    <div class="admin-status" id="adminStatus" role="status">Admin connection is not configured yet.</div>
+    <div id="adminData"></div>
+    <p style="font-size:.78rem;color:#78666a">This panel only displays records after secure admin access is confirmed. Product editing and order updates need the database column names and policies to be checked first.</p>
+  </div>
+</div>
+<script>
+/* IMPORTANT: replace only the placeholder below with your Supabase Publishable key.
+   Never use a secret or service_role key in browser code. */
+const SUPABASE_URL = "https://ouywzkjabtgyiqonxvhk.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "PASTE_YOUR_SB_PUBLISHABLE_KEY_HERE";
+let glowSupabase = null;
+function openAdmin(){
+  document.getElementById('adminPanel').classList.add('open');
+  document.body.style.overflow='hidden';
+  if(!window.supabase){adminStatus('Could not load the Supabase library. Please check your internet connection.');return;}
+  if(SUPABASE_PUBLISHABLE_KEY === 'PASTE_YOUR_SB_PUBLISHABLE_KEY_HERE'){
+    adminStatus('Setup needed: add your Supabase Publishable key in the code, then upload the file again.');
+    return;
+  }
+  if(!glowSupabase) glowSupabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+}
+function closeAdmin(){document.getElementById('adminPanel').classList.remove('open');document.body.style.overflow='';}
+function adminStatus(message){document.getElementById('adminStatus').textContent=message;}
+async function adminSignIn(){
+  try{
+    if(!glowSupabase){openAdmin();if(!glowSupabase)return;}
+    const email=document.getElementById('adminEmail').value.trim();
+    const password=document.getElementById('adminPassword').value;
+    if(!email||!password){adminStatus('Enter both your admin email and password.');return;}
+    adminStatus('Signing in…');
+    const {data,error}=await glowSupabase.auth.signInWithPassword({email,password});
+    if(error) throw error;
+    const {data:adminRow,error:adminError}=await glowSupabase.from('admin_users').select('user_id').eq('user_id',data.user.id).maybeSingle();
+    if(adminError) throw adminError;
+    if(!adminRow){await glowSupabase.auth.signOut();throw new Error('This account is not listed as an admin.');}
+    document.getElementById('adminLogin').style.display='none';
+    document.getElementById('adminSignedInActions').style.display='flex';
+    adminStatus('Admin verified. Loading store records…');
+    await loadAdminData();
+  }catch(e){adminStatus('Sign-in failed: '+(e.message||'Please check the details and try again.'));}
+}
+async function loadAdminData(){
+  if(!glowSupabase){adminStatus('Supabase is not configured.');return;}
+  const host=document.getElementById('adminData');host.innerHTML='';
+  adminStatus('Loading records…');
+  try{
+    const [productsResult,ordersResult]=await Promise.all([
+      glowSupabase.from('products').select('*').limit(100),
+      glowSupabase.from('orders').select('*').order('created_at',{ascending:false}).limit(100)
+    ]);
+    if(productsResult.error) throw new Error('Products: '+productsResult.error.message);
+    if(ordersResult.error) throw new Error('Orders: '+ordersResult.error.message);
+    adminStatus('Signed in as admin. Read-only preview of up to 100 products and 100 orders.');
+    const section=(title,rows)=>'<h3>'+title+' ('+rows.length+')</h3>'+ (rows.length?rows.map(row=>'<div class="admin-row">'+escapeAdminText(JSON.stringify(row))+'</div>').join(''):'<p>No records found.</p>');
+    host.innerHTML=section('Products',productsResult.data||[])+section('Orders',ordersResult.data||[]);
+  }catch(e){adminStatus('Could not load records: '+(e.message||'Unknown error')+'. Database permissions or column settings may need adjustment.');}
+}
+function escapeAdminText(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function adminSignOut(){
+  if(glowSupabase) await glowSupabase.auth.signOut();
+  document.getElementById('adminLogin').style.display='block';
+  document.getElementById('adminSignedInActions').style.display='none';
+  document.getElementById('adminData').innerHTML='';
+  document.getElementById('adminPassword').value='';
+  adminStatus('You have signed out.');
+}
+</script>
+
 </body>
 </html>
